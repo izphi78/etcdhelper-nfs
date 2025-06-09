@@ -26,10 +26,8 @@ jobs:
 
     - name: Test
       run: go test -v ./...
-    - name: Test
-      run: ls
 
     - uses: actions/upload-artifact@v4
       with:
         name: my-artifact
-        path: cmd/
+        path: etcdhelper

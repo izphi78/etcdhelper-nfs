@@ -112,6 +112,8 @@ func main() {
 		_, err = listKeys(client, key)
 	case "change-storage-class-nfs-server":
 		_, err = changeStorageClassNFSServer(client, flag.Arg(1), flag.Arg(2))
+	case "change-storage-class-csi-server":
+		_, err = changeStorageClassCSIServer(client, flag.Arg(1), flag.Arg(2))
     case "change-nfs-path":
 		_, err = changeNFSPath(client, flag.Arg(1), flag.Arg(2))
 	case "get":
@@ -274,6 +276,43 @@ func changeStorageClassNFSServer(client *clientv3.Client, storageClass string, n
 				fmt.Printf("put to key %s %s\n", kv.Key, err)
 			} else {
 				fmt.Printf("%s modified, new NFS Server value: %s\n", string(kv.Key), newNFSServer)
+			}
+		}
+	}
+	fmt.Println("Please reboot your k8s node now for the changes to make effect (volumes need to be remounted)")
+
+	return "All done", nil
+}
+
+func changeStorageClassCSIServer(client *clientv3.Client, storageClass string, newCSIServer string) (string, error) {
+	decoder := scheme.Codecs.UniversalDeserializer()
+	var resp *clientv3.GetResponse
+	var err error
+
+	resp, err = clientv3.NewKV(client).Get(context.Background(), "/registry/persistentvolumes/", clientv3.WithPrefix())
+	if err != nil {
+		return "Error retrieving PVs", err
+	}
+
+	for _, kv := range resp.Kvs {
+		obj, _, _ := decoder.Decode(kv.Value, nil, nil)
+
+		pv := obj.(*v1.PersistentVolume)
+
+		if pv.Spec.StorageClassName == storageClass && pv.Spec.CSI != nil {
+			fmt.Printf("Processing %s. Current CSI Server configured as: %s \n", string(kv.Key), pv.Spec.CSI.VolumeAttributes["server"])
+
+			pv.Spec.CSI.VolumeAttributes["server"] = newCSIServer
+
+			protoSerializer := protobuf.NewSerializer(scheme.Scheme, scheme.Scheme)
+			newObj := new(bytes.Buffer)
+			protoSerializer.Encode(obj, newObj)
+
+			_, err = clientv3.NewKV(client).Put(context.Background(), string(kv.Key), newObj.String())
+			if err != nil {
+				fmt.Printf("put to key %s %s\n", kv.Key, err)
+			} else {
+				fmt.Printf("%s modified, new CSI Server value: %s\n", string(kv.Key), newCSIServer)
 			}
 		}
 	}
